@@ -1,0 +1,4 @@
+interface:
+  display_name: "视频字幕提取"
+  short_description: "从视频链接下载音视频，转写为简体中文，并整理成连贯的文章或报告段落"
+  default_prompt: "Use $extract-video-subtitles 来把我发的视频链接转成字幕，输出为简体中文段落的文章。"
