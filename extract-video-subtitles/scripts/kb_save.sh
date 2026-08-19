@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 把转写/解析结果存入本地知识库（每次交付后自动调用）。
-# 用法: kb_save.sh "<来源(URL或文件路径)>" "<路线: subtitles|voice|text>" "<短标题>" "<文字文件.md>"
+# 用法: kb_save.sh "<来源(URL或文件路径)>" "<路线: subtitles|voice|text>" "<短标题>" "<文字文件.md>" ["相对子目录"]
+#   相对子目录可空=放根目录，或填分类路径如 "蛇口/江泽民相关"（自动创建多层文件夹）。
 # 环境变量 KB_ROOT 可覆盖知识库目录（默认 ~/Documents/字幕知识库），测试时用。
 set -euo pipefail
 
@@ -9,6 +10,7 @@ SOURCE="$1"
 MODE="$2"
 TITLE="$3"
 TEXTFILE="$4"
+SUBDIR="${5:-}"
 
 [[ -f "$TEXTFILE" ]] || { echo "错误：文字文件不存在: $TEXTFILE" >&2; exit 1; }
 mkdir -p "$KB_ROOT"
@@ -18,19 +20,32 @@ WORDS="$(wc -m < "$TEXTFILE" | tr -d ' ')"
 SLUG="$(printf '%s' "$TITLE" | tr -s '[:space:] ' '-' | sed 's/[\\/:*?"<>|]//g' | cut -c1-40)"
 SLUG="${SLUG:-untitled}"
 
-# 同一来源（相同 URL/路径）覆盖：按头部第 3 行 "来源: <...>" 精确匹配
+# 目标目录：KB_ROOT [+ 相对子目录]，多层自动创建
+TARGET_DIR="$KB_ROOT"
+if [[ -n "$SUBDIR" ]]; then
+  TARGET_DIR="$KB_ROOT/$SUBDIR"
+fi
+mkdir -p "$TARGET_DIR"
+
+# 同一来源（相同 URL/路径）覆盖：按头部第 3 行 "来源: <...>" 精确匹配（含子目录）
 TARGET=""
-for f in "$KB_ROOT"/*.md; do
+while IFS= read -r f; do
   [[ -f "$f" ]] || continue
   if awk -v s="$SOURCE" 'NR==3 && $0=="来源: <" s ">" {found=1} END{exit found?0:1}' "$f"; then
     TARGET="$f"
     break
   fi
-done
+done < <(find "$KB_ROOT" -name '*.md' -type f 2>/dev/null | sort)
+
+# 旧条目在其他分类时，随新位置一起移动，避免同源两份
+if [[ -n "$TARGET" && "$(dirname "$TARGET")" != "$TARGET_DIR" ]]; then
+  mv "$TARGET" "$TARGET_DIR/"
+  TARGET="$TARGET_DIR/$(basename "$TARGET")"
+fi
 
 # 不同来源：新建文件；同日同标题冲突时自动加 -2/-3 后缀
 if [[ -z "$TARGET" ]]; then
-  BASE="$KB_ROOT/${DATE}_${SLUG}"
+  BASE="$TARGET_DIR/${DATE}_${SLUG}"
   TARGET="$BASE.md"
   N=2
   while [[ -e "$TARGET" ]]; do
