@@ -64,6 +64,29 @@ fi
 if [[ -f "$URL_OR_FILE" ]]; then
   SRC="$URL_OR_FILE"
 else
+  # 下载前预检：模拟探测时长/格式/预估大小，仅供提示，失败不影响主流程
+  PRE="$( "$YTDLP" --simulate -f "bestaudio/best" \
+    --print "%(duration_string)s|%(vcodec)s|%(acodec)s|%(filesize_approx)s" \
+    "$URL_OR_FILE" 2>/dev/null || true )"
+  if [[ -n "$PRE" ]]; then
+    DUR="$(cut -d'|' -f1 <<<"$PRE")"
+    VC="$(cut -d'|' -f2 <<<"$PRE")"
+    AC="$(cut -d'|' -f3 <<<"$PRE")"
+    SIZE="$(cut -d'|' -f4 <<<"$PRE")"
+    [[ -n "$DUR" && "$DUR" != "NA" ]] || DUR="未知"
+    [[ -n "$SIZE" && "$SIZE" != "NA" ]] || SIZE="未知"
+    echo "预检：时长 ${DUR}，预估下载 ${SIZE}"
+    if [[ -n "$VC" && "$VC" != "none" && -n "$AC" && "$AC" != "none" ]]; then
+      echo "注意：音画合一的整段格式（视频+音频同文件），将整段下载后提取音频。"
+    elif [[ "$VC" == "NA" || "$AC" == "NA" ]]; then
+      echo "注意：无法预判媒体格式；若为直链大文件（如 mp4）将整段下载后提取音频。"
+    else
+      echo "采用音频轨 bestaudio，不下载画面。"
+    fi
+    if [[ "$VC" != "none" && "$AC" != "none" ]]; then
+      echo "      文件大到几十 GB 时，建议改发平台链接（B站/YouTube 等）以便只下载音频轨。"
+    fi
+  fi
   "$YTDLP" -f "bestaudio/best" -o "input.%(ext)s" "$URL_OR_FILE"
   SRC="$(ls -1 input.* | head -1)"
 fi
