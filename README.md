@@ -7,6 +7,7 @@
 ## 功能
 
 - 支持常见站点与直链：B站、央视、百度、腾讯、YouTube、mp4/mp3 等
+- **B站免登录**：内置新版 yt-dlp（2026.08.19）即可匿名下载音频轨转写，无需登录或会员（仅 1080P 高码率需大会员）
 - **智能选路**：有字幕轨就直接提取（更快更准省资源），无字幕才走语音识别
 - 高准确率中文识别（Whisper small 模型，作为回退方案）
 - 自动繁体转简体 + 召唤 AI 基于常识修正人名/地名的同音错字（如“谷牧”误听成“古墓”会改回）
@@ -25,7 +26,7 @@
 
 ## 依赖（需在一台普通电脑上装一次）
 
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp)（仓库已内置新版 `scripts/bin/yt-dlp`，通常无需另装；脚本自动优先用它）
 - [whisper.cpp](https://github.com/ggerganov/whisper.cpp)（`whisper-cli`，CPU 模式，仅回退路线用）
 - [ffmpeg](https://ffmpeg.org/)
 - Python + [opencc-python-reimplemented](https://pypi.org/project/opencc-python-reimplemented/)（繁转简）
@@ -50,12 +51,15 @@ python3 <skill_dir>/scripts/t2s.py transcript.txt transcript_simplified.txt
 
 ```
 extract-video-subtitles/
-├── SKILL.md            # skill 说明与完整流水线
-├── agents/openai.yaml  # 界面显示名与触发提示词
+├── SKILL.md                  # skill 说明与完整流水线
+├── agents/openai.yaml        # 界面显示名与触发提示词
 └── scripts/
-    ├── transcribe.sh   # 优先字幕→回退语音；下载→提音频→Whisper 转写（自动清理大文件）
-    ├── subs2txt.py     # srt/vtt/ass 字幕 → 纯文本
-    └── t2s.py          # 繁体转简体
+    ├── transcribe.sh         # 优先字幕→回退语音；下载→提音频→Whisper 转写（自动清理大文件）
+    ├── bin/yt-dlp            # 内置新版 yt-dlp（B站免登录，2026.08.19）
+    ├── subs2txt.py           # srt/vtt/ass 字幕 → 纯文本
+    ├── t2s.py                # 繁体转简体
+    ├── kb_save.sh            # 结果入库 ~/Documents/字幕知识库（可指定分类子目录）
+    └── capture_wechat_video.sh / .py  # 微信视频号本地缓存捕获
 ```
 
 ## 说明

@@ -1,6 +1,6 @@
 ---
 name: extract-video-subtitles
-description: 从视频/音频链接提取文字并输出为中文文章，也支持直接解析本地 .md/.txt/.srt 文字稿（总结/解读/初筛/问答）。当用户粘贴音视频链接（B站、央视、百度、腾讯、YouTube，或直链 mp4/mp3 等）希望"转成字幕/文字稿/文章/报告"、要求对链接做语音转写、需要对已提取文字做总结/解读/初筛/问答、或检索转写知识库（~/Documents/字幕知识库）时使用。核心流程：(1) 优先提取内嵌/在线字幕轨；(2) 无字幕时回退 Whisper 语音识别；(3) 统一繁体转简体、修正同音错字、整理成连贯段落文章；(4) 结果自动存入本地知识库供调用。也适用于对已在本机的音视频文件直接处理。
+description: 从视频/音频链接提取文字并输出为中文文章，也支持直接解析本地 .md/.txt/.srt 文字稿（总结/解读/初筛/问答）及微信视频号/公众号等下载器难抓的来源。当用户粘贴音视频链接（B站、央视、百度、腾讯、YouTube、直链 mp4/mp3、微信视频号 weixin.qq.com/sph、公众号文章等）希望"转成字幕/文字稿/文章/报告"、要求对链接做语音转写、需要对已提取文字做总结/解读/初筛/问答、或检索转写知识库（~/Documents/字幕知识库）时使用。核心流程：(1) 优先提取内嵌/在线字幕轨；(2) 无字幕时回退 Whisper 语音识别；(3) 视频号等 yt-dlp 抓不到的按情况 E 从本地微信缓存捕获；(4) 统一繁体转简体、修正同音错字、整理成连贯段落文章；(5) 结果自动存入本地知识库供调用。也适用于对已在本机的音视频文件直接处理。
 ---
 
 # 视频字幕提取
@@ -9,17 +9,19 @@ description: 从视频/音频链接提取文字并输出为中文文章，也支
 
 ## 环境（本机已验证）
 
-- yt-dlp：`/Users/qianxu/Library/Python/3.9/bin/yt-dlp`（不在 PATH，用完整路径）
+- yt-dlp：优先内置 `scripts/bin/yt-dlp`（2026.08.19 新版，B站免登录实测可用；旧版系统路径会撞 B站 412 反爬）。
+  脚本自动按“内置 → 系统路径”顺序选择，也可用环境变量 `YTDLP` 指定
 - whisper-cli：`/opt/homebrew/bin/whisper-cli`（whisper.cpp）。**必须加 `-ng` 用 CPU**——Metal/GPU 在本机部分场景会分配缓冲区失败。
 - 模型目录：`/opt/homebrew/opt/whisper-cpp/models/`（已装 `ggml-base.bin`、`ggml-small.bin`）
 - ffmpeg/ffprobe：`/opt/homebrew/bin/`
 - opencc（繁转简）：Python 3.14 用户目录已装 `opencc-python-reimplemented`，见 `scripts/t2s.py`
+- 微信视频号捕获：需要桌面版微信（WeChat）已登录，见下方"情况 E"
 
 **网络注意**：沙盒默认拦截外网。下载媒体、模型、抓字幕等每个联网命令都需 `sandbox_permissions: require_escalated`。国内访问 huggingface.co 会超时，模型镜像用 `https://hf-mirror.com`。
 
 ## 工作流程
 
-第 1–3 步用 `scripts/transcribe.sh` 一键完成（脚本内部自动判断走字幕还是语音）：
+第 1–3 步用 `scripts/transcribe.sh` 一键完成（脚本内部自动判断走字幕还是语音；微信视频号链接先走"情况 E"得到本地视频后再交给 `transcribe.sh`）：
 
 ```bash
 bash <skill_dir>/scripts/transcribe.sh "<url 或本地文件路径>" "<输出目录>" [small|base|medium]
@@ -62,6 +64,53 @@ bash <skill_dir>/scripts/transcribe.sh "<url 或本地文件路径>" "<输出目
    - **问答**：严格依据文本作答，文中没有的内容明确说明"文中未提及"。
 4. 交付后按《知识库》规则入库（路线写 `text`）。
 
+### 情况 E：微信视频号 / 公众号视频（本地缓存捕获）
+
+**适用**：`weixin.qq.com/sph/...`（视频号）、微信内转发、其他 yt-dlp 抓不到的来源。这类链接没有公网直链，普通下载器拿不到。
+
+**原理**：不装代理、不装根证书、不劫持流量、不需要 Cookie。改为读取你自己的 Mac 微信本地缓存——你在微信里播放过的视频会被微信缓存到本机，脚本把"播放后新出现的那条缓存"复制出来，再走常规转写。**必须你在本机桌面微信里亲自播放目标视频**。
+
+**前提**：桌面版微信（WeChat）已安装并已登录，数据目录存在（4.x：`~/Library/Group Containers/5A4RE8SF68.com.tencent.xinWeChat`；3.x：`~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files`）。
+
+**步骤**（以下命令的微信缓存读取需 `sandbox_permissions: require_escalated`）：
+
+1. 播放前记录基线：
+   ```bash
+   bash <skill_dir>/scripts/capture_wechat_video.sh snapshot --state /tmp/wechat_state.json
+   ```
+2. 请用户在自己的微信里打开目标视频，**完整播放一遍**（不要只播开场几秒，否则缓存可能还没落盘）。
+3. 等新缓存出现并复制出来（默认最长 30 分钟，够看完正常时长视频）：
+   ```bash
+   bash <skill_dir>/scripts/capture_wechat_video.sh capture \
+     --state /tmp/wechat_state.json \
+     --out "<输出目录>/wechat_video" \
+     --link "<原始链接>" --timeout 1800
+   ```
+   成功后 `<输出目录>/wechat_video/` 里会有 `video.mp4` + `metadata.json`。
+4. 把 `video.mp4` 当作本地文件交给 `transcribe.sh`（自动走"内嵌字幕 → 无则 Whisper 转写"常规流程）：
+   ```bash
+   bash <skill_dir>/scripts/transcribe.sh "<输出目录>/wechat_video/video.mp4" "<输出目录>" small
+   ```
+5. 走统一后处理（繁转简 → 错字修正 → 段落成文），交付前问用户入库分类，任务结束清掉 `wechat_video/video.mp4`、`audio.wav` 等大文件（只留文字稿与 metadata）。
+
+**边界**：
+- 用户没有桌面版微信 / 没登录 / 拒绝播放时，直接说明无法从本地捕获，请改用可下载的链接，不要强行下载或解析。
+- 公众号文章的 `mp.weixin.qq.com/s/...` 是 HTML 网页文本、不是视频，本 skill 默认不处理；如需可参考社区 `archive-wechat-content`（`archive_article.py`）另做，不并入本条。
+
+### 情况 F：B站（新版 yt-dlp 免登录，已实测可用）
+
+**适用**：B站（bilibili.com / b23.tv）。
+
+**验证结论（2026-08 实测，BV1fSgj6uEkR）**：
+- **内置新版 yt-dlp（`scripts/bin/yt-dlp`，2026.08.19）可免登录处理 B站**：匿名下载音频轨 `bestaudio` 成功（5 分钟视频约 5MB，秒下），全程不要求登录、不碰 Cookie。
+- 旧版 yt-dlp（2025.10 及更早）会撞 B站 反爬 `HTTP 412`，所以**必须用内置新版**。
+- 脚本自动为 B站 链接加 `--referer https://www.bilibili.com` 与 `--no-playlist`，无需任何手动操作。
+- **字幕轨**：视频有公开/自动字幕轨时，字幕优先路线直接抓到（`--write-subs --write-auto-subs`）；没有字幕轨时 yt-dlp 抓到的是**弹幕**（`subs.danmaku.xml`），脚本已排除弹幕、自动回退语音识别。
+- AI 字幕（`player/v2` 的 `subtitles`）仍要求登录会话才返回 json 地址；未登录拿不到时自然走语音回退，不影响文字产出。
+- 1080P 高码率格式需要大会员，但音频轨不受影响。
+
+**结论**：B站链接交给 `transcribe.sh` 全自动处理——有字幕轨直接抓字幕，没有则免登录下载音频 → Whisper 转写。用户无需登录、无需打开浏览器。
+
 ### 统一后处理（第 4–6 步，两种路线共用）
 
 1. **繁转简**：`python3 <skill_dir>/scripts/t2s.py <文本> <简体输出>`（OpenCC）。
@@ -85,7 +134,7 @@ bash <skill_dir>/scripts/transcribe.sh "<url 或本地文件路径>" "<输出目
 - **入库位置由用户决定**：交付转写/解析结果前，先问用户放在知识库的哪个分类下；用户说"放根目录"或没提时放根目录，说"新开一个文件夹 XX / 放到 XX/YY"时就按用户说的分类建。得到答复后运行：
   `bash <skill_dir>/scripts/kb_save.sh "<来源URL或路径>" "<路线>" "<短标题>" "<交付的.md文件>" ["相对子目录"]`
   - 相对子目录可空（根目录），或填分类路径，如 `蛇口/江泽民相关`——脚本自动创建多层文件夹，后续相关视频都进同一目录。
-  - 路线：`subtitles`=字幕轨 / `voice`=语音识别 / `text`=本地文字文件
+  - 路线：`subtitles`=字幕轨 / `voice`=语音识别 / `text`=本地文字文件（微信视频号捕获得到的视频仍按实际走的字幕/语音路线记）
   - 文件名 `YYYY-MM-DD_短标题.md`；头部 5 行元信息：标题/来源/日期/路线/字数
   - 同来源（相同 URL/路径）覆盖旧条目（旧条目在别的分类时会自动移动到当前指定位置再覆盖），避免重复入库；不同来源新建文件；目录内 README.md 首次自动创建
 - 后续用户问"以前转写过哪些 / 检索知识库里某内容 / 基于某篇文字回答"时：
@@ -96,7 +145,7 @@ bash <skill_dir>/scripts/transcribe.sh "<url 或本地文件路径>" "<输出目
 
 ### 第 7 步（强制收尾）——清理工作目录
 
-- 交付文章后检查输出目录，**删除所有大体积中间文件**：下载的媒体（`input.*`/`*.mp4`/`*.mp3`/`*.m4a` 等）、`audio.wav`。只保留文字产物（`subs.txt`、`transcript.txt/.srt`、`*_simplified.txt`、交付的 `.md`）。
+- 交付文章后检查输出目录，**删除所有大体积中间文件**：下载的媒体（`input.*`/`*.mp4`/`*.mp3`/`*.m4a` 等）、`audio.wav`、以及情况 E 捕获的 `wechat_video/video.mp4`。只保留文字产物（`subs.txt`、`transcript.txt/.srt`、`*_simplified.txt`、交付的 `.md`）。
 - 字幕文件（srt/vtt/ass）体积小，可保留作参考。
 - 删前用 `ls -lh` 确认只清理目标目录，绝不 `rm -rf` 用户原始素材或工作区根目录。
 
@@ -105,6 +154,6 @@ bash <skill_dir>/scripts/transcribe.sh "<url 或本地文件路径>" "<输出目
 - 用户只要"文字"时，默认输出为连贯的**简体中文文章**（段落式），不是 srt 时间轴。
 - 保留原话内容与信息，只做简体化和明显错字修正，不自行添加观点。
 - 整段纯音乐或与内容无关的占位标记直接剔除。
-- 交付时说明本次走的是**字幕轨**还是**语音识别**（语音识别结果更需人工校对）。
+- 交付时说明本次走的是**字幕轨**还是**语音识别**（语音识别结果更需人工校对）；视频号来源的额外说明它是从本地微信缓存捕获的。
 - 交付后告知入库路径（已自动存入 `~/Documents/字幕知识库/`）与本条目的处理路线。
 - 任务结束前完成临时文件清理并简要告知用户删了哪些。
